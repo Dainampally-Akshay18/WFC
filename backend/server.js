@@ -9,12 +9,24 @@ require('dotenv').config();
 // Import configurations
 const { connectDatabase } = require('./config/database');
 const { initializeFirebase } = require('./config/firebase');
+const { validateEnvironment } = require('./config/environment');
 
 // Import middleware
 const errorHandler = require('./middleware/errorHandler');
 
+// Import routes
+const authRoutes = require('./routes/auth');
+
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// Validate environment variables
+try {
+  validateEnvironment();
+} catch (error) {
+  console.error('❌ Environment validation failed:', error.message);
+  process.exit(1);
+}
 
 // Security middleware
 app.use(helmet());
@@ -57,16 +69,50 @@ app.get('/', (req, res) => {
   res.status(200).json({
     status: 'success',
     message: 'Christian Organization Website API',
-    version: '1.0.0'
+    version: '1.0.0',
+    endpoints: {
+      health: '/api/health',
+      auth: '/api/auth',
+      models_test: '/api/test-models'
+    }
   });
 });
 
-// API Routes (will be uncommented as we create them)
-// app.use('/api/auth', authRoutes);
-// app.use('/api/users', userRoutes);
-// app.use('/api/admin', adminRoutes);
+// API Routes
+app.use('/api/auth', authRoutes);
 
-// 404 handler - MUST be last
+// Test database models endpoint (development only)
+if (process.env.NODE_ENV === 'development') {
+  app.get('/api/test-models', async (req, res) => {
+    try {
+      const { User, Pastor, Sermon, Event, Blog, PrayerRequest } = require('./models');
+      
+      const stats = {
+        users: await User.countDocuments(),
+        pastors: await Pastor.countDocuments(),
+        sermons: await Sermon.countDocuments(),
+        events: await Event.countDocuments(),
+        blogs: await Blog.countDocuments(),
+        prayerRequests: await PrayerRequest.countDocuments()
+      };
+      
+      res.json({
+        status: 'success',
+        message: 'Database models are working',
+        data: stats,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.status(500).json({
+        status: 'error',
+        message: 'Database model test failed',
+        error: error.message
+      });
+    }
+  });
+}
+
+// 404 handler - MUST be last before error handler
 app.use((req, res) => {
   res.status(404).json({
     status: 'error',
@@ -92,6 +138,7 @@ async function startServer() {
     const server = app.listen(PORT, () => {
       console.log(`✅ Server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
       console.log(`🚀 Health check available at: http://localhost:${PORT}/api/health`);
+      console.log(`🔐 Authentication routes at: http://localhost:${PORT}/api/auth`);
       console.log(`🌐 Root endpoint available at: http://localhost:${PORT}/`);
     });
 
