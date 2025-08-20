@@ -3,7 +3,6 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
-const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
 // Import configurations
@@ -12,7 +11,16 @@ const { initializeFirebase } = require('./config/firebase');
 const { validateEnvironment } = require('./config/environment');
 
 // Import middleware
-const errorHandler = require('./middleware/errorHandler');
+const { errorHandler, notFound } = require('./middleware/errorHandler');
+const { handleUploadError } = require('./middleware/fileUpload');
+const { 
+  generalLimit, 
+  helmetConfig, 
+  corsOptions, 
+  securityHeaders, 
+  bodySizeLimits,
+  requestLogger 
+} = require('./middleware/security');
 
 // Import routes
 const authRoutes = require('./routes/auth');
@@ -28,31 +36,26 @@ try {
   process.exit(1);
 }
 
+// Trust proxy (important for rate limiting)
+app.set('trust proxy', 1);
+
 // Security middleware
-app.use(helmet());
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
-  credentials: true
-}));
+app.use(helmet(helmetConfig));
+app.use(securityHeaders);
+app.use(cors(corsOptions));
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
-  message: {
-    error: 'Too many requests from this IP, please try again later.'
-  }
-});
-app.use('/api/', limiter);
-
-// Body parsing middleware
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
-// Logging middleware
+// Request logging (in development)
 if (process.env.NODE_ENV === 'development') {
+  app.use(requestLogger);
   app.use(morgan('dev'));
 }
+
+// Rate limiting
+app.use('/api/', generalLimit);
+
+// Body parsing middleware with size limits
+app.use(express.json(bodySizeLimits.json));
+app.use(express.urlencoded(bodySizeLimits.urlencoded));
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -60,7 +63,8 @@ app.get('/api/health', (req, res) => {
     status: 'success',
     message: 'Server is running successfully',
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
+    environment: process.env.NODE_ENV || 'development',
+    version: '1.0.0'
   });
 });
 
@@ -74,7 +78,8 @@ app.get('/', (req, res) => {
       health: '/api/health',
       auth: '/api/auth',
       models_test: '/api/test-models'
-    }
+    },
+    timestamp: new Date().toISOString()
   });
 });
 
@@ -106,21 +111,20 @@ if (process.env.NODE_ENV === 'development') {
       res.status(500).json({
         status: 'error',
         message: 'Database model test failed',
-        error: error.message
+        error: error.message,
+        timestamp: new Date().toISOString()
       });
     }
   });
 }
 
-// 404 handler - MUST be last before error handler
-app.use((req, res) => {
-  res.status(404).json({
-    status: 'error',
-    message: `Route ${req.originalUrl} not found`
-  });
-});
+// File upload error handler (must be before general error handler)
+app.use(handleUploadError);
 
-// Global error handler - MUST be after 404 handler
+// 404 handler
+app.use(notFound);
+
+// Global error handler (must be last)
 app.use(errorHandler);
 
 // Initialize services and start server
@@ -137,18 +141,26 @@ async function startServer() {
     // Start server
     const server = app.listen(PORT, () => {
       console.log(`✅ Server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
-      console.log(`🚀 Health check available at: http://localhost:${PORT}/api/health`);
-      console.log(`🔐 Authentication routes at: http://localhost:${PORT}/api/auth`);
-      console.log(`🌐 Root endpoint available at: http://localhost:${PORT}/`);
+      console.log(`🚀 Health check: http://localhost:${PORT}/api/health`);
+      console.log(`🔐 Auth routes: http://localhost:${PORT}/api/auth`);
+      console.log(`🌐 Root endpoint: http://localhost:${PORT}/`);
+      console.log(`📊 Security: Rate limiting, CORS, and Helmet enabled`);
     });
 
     // Graceful shutdown
-    process.on('SIGTERM', () => {
-      console.log('SIGTERM received, shutting down gracefully');
+    const gracefulShutdown = () => {
+      console.log('🔄 Received shutdown signal, closing server gracefully...');
       server.close(() => {
-        console.log('Process terminated');
+        console.log('✅ Server closed successfully');
+        mongoose.connection.close(() => {
+          console.log('✅ Database connection closed');
+          process.exit(0);
+        });
       });
-    });
+    };
+
+    process.on('SIGTERM', gracefulShutdown);
+    process.on('SIGINT', gracefulShutdown);
 
   } catch (error) {
     console.error('❌ Failed to start server:', error);
@@ -158,13 +170,14 @@ async function startServer() {
 
 // Handle unhandled promise rejections
 process.on('unhandledRejection', (err, promise) => {
-  console.log('❌ Unhandled Rejection at:', promise, 'reason:', err);
+  console.error('❌ Unhandled Promise Rejection:', err);
+  console.error('❌ At:', promise);
   process.exit(1);
 });
 
 // Handle uncaught exceptions
 process.on('uncaughtException', (err) => {
-  console.log('❌ Uncaught Exception thrown:', err);
+  console.error('❌ Uncaught Exception:', err);
   process.exit(1);
 });
 
