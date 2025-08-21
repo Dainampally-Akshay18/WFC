@@ -97,72 +97,112 @@ class AuthService {
    * Login with Google using popup (no redirect issues)
    * @returns {Promise<Object>} Google login result
    */
+
   async loginWithGoogle() {
-    try {
-      console.log('🔐 Starting Google popup login...');
-      
-      // Use popup for Google sign-in
-      const result = await signInWithPopup(auth, googleProvider);
-      console.log('✅ Google popup login successful:', result.user.uid);
-      
-      // Call backend to sync Google user data
-      const response = await api.post('/auth/google-login', {
-        uid: result.user.uid,
-        email: result.user.email,
-        name: result.user.displayName,
-        photoURL: result.user.photoURL,
-        provider: 'google'
-      });
-      console.log('✅ Backend Google login successful:', response.data);
-      
-      // Store user data
-      this.currentUser = result.user;
-      this.userData = response.data.data;
+  try {
+    console.log('🔐 Starting Google popup login...');
+    
+    // Step 1: Firebase Google authentication
+    const result = await signInWithPopup(auth, googleProvider);
+    console.log('✅ Google popup login successful:', result.user.uid);
+    
+    // Step 2: Send to backend and get complete user data
+    const response = await api.post('/auth/google-login', {
+      uid: result.user.uid,
+      email: result.user.email,
+      name: result.user.displayName,
+      photoURL: result.user.photoURL,
+      provider: 'google'
+    });
+    
+    console.log('✅ Backend Google login successful:', response.data);
+    
+    // Step 3: Store COMPLETE user data (including branch, approvalStatus)
+    this.currentUser = result.user;
+    this.userData = response.data.data.user; // ⭐ Complete user data from MongoDB
 
-      return {
-        success: true,
-        user: result.user,
-        data: response.data.data,
-        message: 'Google login successful'
-      };
-    } catch (error) {
-      console.error('❌ Google popup login failed:', error);
-      
-      // Handle specific popup errors
-      if (error.code === 'auth/popup-closed-by-user') {
-        throw new Error('Google sign-in cancelled');
-      } else if (error.code === 'auth/popup-blocked') {
-        throw new Error('Popup blocked. Please allow popups and try again.');
-      }
-      
-      throw this.handleAuthError(error);
-    }
+    return {
+      success: true,
+      user: result.user,
+      data: response.data.data.user, // ⭐ Return complete user data
+      message: 'Google login successful'
+    };
+  } catch (error) {
+    console.error('❌ Google popup login failed:', error);
+    throw this.handleAuthError(error);
   }
+}
 
+
+  async getUserStatus() {
+  try {
+    console.log('👤 Getting user status...');
+    
+    // Get current Firebase user
+    const currentUser = this.getCurrentUser();
+    
+    if (!currentUser) {
+      throw new Error('No authenticated user found');
+    }
+
+    // Send Firebase UID and email to identify user
+    const response = await api.post('/auth/status', {
+      firebaseUID: currentUser.uid,
+      email: currentUser.email
+    });
+    
+    console.log('✅ User status retrieved:', response.data);
+    
+    this.userData = response.data.data;
+    return response.data;
+  } catch (error) {
+    console.error('❌ Get user status failed:', error);
+    throw this.handleAuthError(error);
+  }
+}
   // ==========================================
   // OTHER METHODS (SAME AS BEFORE)
   // ==========================================
 
   async selectBranch(branch) {
-    try {
-      console.log('🏢 Selecting branch:', branch);
-      
-      const response = await api.post('/auth/select-branch', { branch });
-      console.log('✅ Branch selection successful:', response.data);
-      
-      if (this.userData) {
-        this.userData.branch = branch;
-        this.userData.approvalStatus = 'pending';
-        this.userData.needsBranchSelection = false;
-      }
-
-      return response.data;
-    } catch (error) {
-      console.error('❌ Branch selection failed:', error);
-      throw this.handleAuthError(error);
+  try {
+    console.log('🏢 Selecting branch:', branch);
+    
+    // ⭐ Get current Firebase user data
+    const currentUser = auth.currentUser;
+    
+    if (!currentUser) {
+      throw new Error('No authenticated user found');
     }
-  }
+    
+    console.log('👤 Current user data:', {
+      uid: currentUser.uid,
+      email: currentUser.email,
+      name: currentUser.displayName
+    });
+    
+    // Send actual user data, not defaults
+    const response = await api.post('/auth/select-branch', { 
+      branch,
+      firebaseUID: currentUser.uid,        // ⭐ Real Firebase UID
+      email: currentUser.email,            // ⭐ Real email
+      name: currentUser.displayName || 'User' // ⭐ Real name
+    });
+    
+    console.log('✅ Branch selection successful:', response.data);
+    
+    if (this.userData) {
+      this.userData.branch = branch;
+      this.userData.approvalStatus = 'pending';
+      this.userData.needsBranchSelection = false;
+    }
 
+    return response.data;
+  } catch (error) {
+    console.error('❌ Branch selection failed:', error);
+    throw this.handleAuthError(error);
+  }
+}
   async getUserStatus() {
     try {
       console.log('👤 Getting user status...');

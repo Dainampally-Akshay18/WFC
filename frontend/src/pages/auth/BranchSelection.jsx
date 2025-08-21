@@ -9,8 +9,18 @@ const BranchSelection = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   
-  const { selectBranch, userData } = useAuth();
+  const { selectBranch, userData, currentUser } = useAuth(); // ⭐ Get currentUser
   const navigate = useNavigate();
+
+  // ⭐ Debug log to see what user data we have
+  console.log('🔍 Branch selection page - User data:', {
+    currentUser: currentUser ? {
+      uid: currentUser.uid,
+      email: currentUser.email,
+      name: currentUser.displayName
+    } : null,
+    userData: userData
+  });
 
   const branches = [
     {
@@ -38,6 +48,8 @@ const BranchSelection = () => {
     
     try {
       console.log('🏢 Submitting branch selection:', selectedBranch);
+      console.log('👤 Current user for branch selection:', currentUser?.email);
+      
       await selectBranch(selectedBranch);
       
       console.log('✅ Branch selection successful, redirecting to pending approval');
@@ -61,7 +73,12 @@ const BranchSelection = () => {
             Choose Your Branch
           </h1>
           <p className="text-gray-600 max-w-2xl mx-auto">
-            Welcome {userData?.name}! Please select the branch you'd like to join.
+            Welcome {currentUser?.displayName || userData?.name}! 
+            Please select the branch you'd like to join.
+          </p>
+          {/* ⭐ Debug info - remove in production */}
+          <p className="text-sm text-gray-500 mt-2">
+            Email: {currentUser?.email || userData?.email}
           </p>
         </div>
 

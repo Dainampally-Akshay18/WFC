@@ -4,7 +4,7 @@ const {
   selectBranch, 
   getUserStatus, 
   registerUser,
-  logout,googleLogin
+  logout,googleLogin,getStatus
 } = require('../controllers/authController');
 const { authenticateToken } = require('../middleware/auth');
 const { body, validationResult } = require('express-validator');
@@ -86,6 +86,10 @@ router.get('/health', (req, res) => {
 
 // Add this line to your existing routes
 router.post('/google-login', googleLogin);
+
+// Change from GET to POST to send Firebase UID
+router.post('/status', getStatus);  // ⭐ Changed to POST
+
 
 
 module.exports = router;

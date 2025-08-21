@@ -21,67 +21,80 @@ export const AuthProvider = ({ children }) => {
   const [initialized, setInitialized] = useState(false);
 
   // Memoized auth state handler
-  const handleAuthStateChange = useCallback(async (user) => {
-    console.log('🔐 Auth state changed:', user ? `User: ${user.uid} (${user.email})` : 'No user');
+const handleAuthStateChange = useCallback(async (user) => {
+  console.log('🔐 Auth state changed:', user ? `User: ${user.uid} (${user.email})` : 'No user');
+  
+  try {
+    setCurrentUser(user);
     
-    try {
-      setCurrentUser(user);
+    if (user) {
+      console.log('👤 User found, getting complete user data...');
       
-      if (user) {
-        console.log('👤 User found, getting user data...');
+      try {
+        // ⭐ ALWAYS get fresh user data from database
+        const response = await authService.getUserStatus();
+        console.log('✅ Complete user data retrieved:', response.data);
         
-        try {
-          const response = await authService.getUserStatus();
-          console.log('✅ User status retrieved:', response.data);
-          
-          setUserData(response.data);
-          localStorage.setItem('user', JSON.stringify(response.data));
-        } catch (statusError) {
-          console.warn('⚠️ User status failed:', statusError.message);
-          
-          if (statusError.message.includes('Network Error') || statusError.message.includes('ERR_')) {
-            setUserData({ 
-              needsSetup: true, 
-              error: 'Network connection issue. Please check your connection.',
-              uid: user.uid,
-              email: user.email,
-              name: user.displayName
-            });
-          } else {
-            // New user - needs setup
-            setUserData({ 
-              needsSetup: true,
-              needsBranchSelection: true,
-              uid: user.uid,
-              email: user.email,
-              name: user.displayName
-            });
-          }
+        if (response.data.user) {
+          // ⭐ User exists in database - use their complete data
+          console.log('🔄 Existing user with complete data');
+          setUserData(response.data.user);
+          localStorage.setItem('user', JSON.stringify(response.data.user));
+        } else {
+          // ⭐ New user - needs branch selection
+          console.log('🆕 New user detected');
+          setUserData({ 
+            uid: user.uid,
+            email: user.email,
+            name: user.displayName,
+            isNewUser: true
+          });
         }
-      } else {
-        console.log('🚪 User logged out, clearing data');
-        setUserData(null);
-        localStorage.removeItem('user');
+      } catch (statusError) {
+        console.warn('⚠️ User status failed:', statusError.message);
+        
+        // Handle error cases
+        if (statusError.message.includes('Network Error')) {
+          setUserData({ 
+            error: 'Network connection issue.',
+            uid: user.uid,
+            email: user.email,
+            name: user.displayName
+          });
+        } else {
+          // Assume new user if status check fails
+          setUserData({ 
+            uid: user.uid,
+            email: user.email,
+            name: user.displayName,
+            isNewUser: true
+          });
+        }
       }
-    } catch (error) {
-      console.error('❌ Error in auth state change:', error);
-      
-      if (user) {
-        setUserData({ 
-          needsSetup: true,
-          error: error.message || 'Authentication setup required',
-          uid: user.uid,
-          email: user.email,
-          name: user.displayName
-        });
-      } else {
-        setUserData(null);
-      }
-    } finally {
-      setLoading(false);
-      setInitialized(true);
+    } else {
+      console.log('🚪 User logged out, clearing data');
+      setUserData(null);
+      localStorage.removeItem('user');
     }
-  }, []);
+  } catch (error) {
+    console.error('❌ Error in auth state change:', error);
+    
+    if (user) {
+      setUserData({ 
+        error: error.message || 'Authentication setup required',
+        uid: user.uid,
+        email: user.email,
+        name: user.displayName
+      });
+    } else {
+      setUserData(null);
+    }
+  } finally {
+    setLoading(false);
+    setInitialized(true);
+  }
+}, []);
+
 
   // Initialize auth state listener
   useEffect(() => {

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../contexts/AuthContext'; // ⭐ Import useAuth hook
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import { EnvelopeIcon, EyeIcon, EyeSlashIcon } from '@heroicons/react/24/outline';
@@ -14,61 +14,82 @@ const Login = () => {
   const [errors, setErrors] = useState({});
   const [isLoading, setIsLoading] = useState(false);
 
+  // ⭐ GET ALL DATA FROM AUTHCONTEXT
   const { 
     login, 
     loginWithGoogle, 
     currentUser, 
-    userData, 
+    userData,           // ⭐ This is the key - get userData from context
     initialized, 
-    isAuthenticated, 
-    needsBranchSelection,
-    needsApproval 
+    isAuthenticated
   } = useAuth();
   
   const navigate = useNavigate();
   const location = useLocation();
-
   const from = location.state?.from?.pathname || '/dashboard';
 
-  // Handle navigation for authenticated users
+  // ⭐ FIXED USEEFFECT - Uses userData from AuthContext
   useEffect(() => {
+    console.log('🔄 Login useEffect triggered');
+    console.log('📊 Auth state:', {
+      initialized,
+      isAuthenticated: isAuthenticated(),
+      currentUser: !!currentUser,
+      userData
+    });
+
     if (!initialized) {
-      console.log('🔄 Waiting for auth initialization...');
+      console.log('⏳ Waiting for auth initialization...');
       return;
     }
 
     if (isAuthenticated()) {
       console.log('👤 User authenticated, determining destination...');
-      console.log('User data:', userData);
       
-      if (needsBranchSelection()) {
-        console.log('🏢 Redirecting to branch selection');
+      // ⭐ NEW USER OR NO USER DATA: Go to branch selection
+      if (!userData) {
+        console.log('🆕 No user data available: Redirecting to branch selection');
         navigate('/select-branch', { replace: true });
         return;
       }
       
-      if (userData?.userType === 'user' && needsApproval()) {
-        console.log('⏳ Redirecting to pending approval');
+      // ⭐ USER HAS NO BRANCH: Go to branch selection  
+      if (!userData.branch) {
+        console.log('🏢 User has no branch: Redirecting to branch selection');
+        navigate('/select-branch', { replace: true });
+        return;
+      }
+      
+      // ⭐ USER HAS BRANCH BUT PENDING APPROVAL: Go to pending approval
+      if (userData.branch && userData.approvalStatus === 'pending') {
+        console.log('⏳ User pending approval: Redirecting to pending approval');
         navigate('/pending-approval', { replace: true });
         return;
       }
       
-      if (userData?.approvalStatus === 'approved' || userData?.userType === 'pastor') {
-        console.log('✅ Redirecting to dashboard');
+      // ⭐ USER IS APPROVED: Go to dashboard
+      if (userData.approvalStatus === 'approved') {
+        console.log('✅ User approved: Redirecting to dashboard');
         navigate(from, { replace: true });
         return;
       }
       
-      // If user data indicates some setup is needed
-      if (userData?.needsSetup) {
-        if (userData.needsBranchSelection) {
-          console.log('🏢 Setup needed: branch selection');
-          navigate('/select-branch', { replace: true });
-          return;
-        }
+      // ⭐ USER IS REJECTED: Show rejection page
+      if (userData.approvalStatus === 'rejected') {
+        console.log('❌ User rejected: Redirecting to rejection page');
+        navigate('/application-rejected', { replace: true });
+        return;
       }
+      
+      // ⭐ DEFAULT FALLBACK
+      console.log('🔄 Default case: Redirecting to dashboard');
+      navigate(from, { replace: true });
+      
+    } else {
+      // User not authenticated - stay on login
+      console.log('🔓 User not authenticated: Staying on login page');
     }
-  }, [currentUser, userData, initialized, navigate, from, isAuthenticated, needsBranchSelection, needsApproval]);
+  }, [currentUser, userData, initialized, navigate, from, isAuthenticated]); // ⭐ All dependencies included
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -108,10 +129,8 @@ const Login = () => {
     try {
       console.log('🔐 Attempting email login...');
       await login(formData.email, formData.password);
-      
       // Navigation will be handled by useEffect after auth state updates
       console.log('✅ Login successful, waiting for auth state update...');
-      
     } catch (error) {
       console.error('❌ Login failed:', error);
       setErrors({ submit: error.message });
@@ -127,7 +146,8 @@ const Login = () => {
     try {
       console.log('🔐 Attempting Google login...');
       await loginWithGoogle();
-      // This will redirect the page, so no further code execution
+      // Navigation will be handled by useEffect after auth state updates
+      console.log('✅ Google login successful, waiting for auth state update...');
     } catch (error) {
       console.error('❌ Google login failed:', error);
       if (error.message !== 'Google sign-in cancelled') {

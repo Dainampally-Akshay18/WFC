@@ -6,6 +6,8 @@ const morgan = require('morgan');
 require('dotenv').config();
 const authRoutes = require('./routes/auth');
 
+const { connectDatabase } = require('./config/database');
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -216,7 +218,8 @@ app.use((error, req, res, next) => {
 // START SERVER
 // ===========================
 
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, '0.0.0.0', async() => {
+   await connectDatabase();
   console.log(`
 🚀 Server started successfully!
 📍 Port: ${PORT}
