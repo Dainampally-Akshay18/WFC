@@ -1,10 +1,9 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../config/firebase';
-import authService from '../services/authService';
-import toast from 'react-hot-toast';
+import authService from '../services/authService'; // ⭐ Import authService instead of api
 
-const AuthContext = createContext();
+const AuthContext = createContext({});
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
@@ -17,254 +16,128 @@ export const useAuth = () => {
 export const AuthProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(null);
   const [userData, setUserData] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true);      // ⭐ Loading state
   const [initialized, setInitialized] = useState(false);
 
-  // Memoized auth state handler
-const handleAuthStateChange = useCallback(async (user) => {
-  console.log('🔐 Auth state changed:', user ? `User: ${user.uid} (${user.email})` : 'No user');
-  
-  try {
-    setCurrentUser(user);
+  // ⭐ FIXED: Auth state change handler using authService
+  const handleAuthStateChange = useCallback(async (user) => {
+    console.log('🔐 Auth state changed:', user ? `User: ${user.uid} (${user.email})` : 'No user');
     
-    if (user) {
-      console.log('👤 User found, getting complete user data...');
+    try {
+      setCurrentUser(user);
       
-      try {
-        // ⭐ ALWAYS get fresh user data from database
-        const response = await authService.getUserStatus();
-        console.log('✅ Complete user data retrieved:', response.data);
+      if (user) {
+        console.log('👤 Firebase user found, fetching from database...');
+        setLoading(true); // Set loading while fetching
         
-        if (response.data.user) {
-          // ⭐ User exists in database - use their complete data
-          console.log('🔄 Existing user with complete data');
-          setUserData(response.data.user);
-          localStorage.setItem('user', JSON.stringify(response.data.user));
-        } else {
-          // ⭐ New user - needs branch selection
-          console.log('🆕 New user detected');
-          setUserData({ 
-            uid: user.uid,
-            email: user.email,
-            name: user.displayName,
-            isNewUser: true
-          });
+        try {
+          // ⭐ Use authService instead of api directly
+          const response = await authService.getUserStatus();
+          
+          console.log('✅ Database response:', response);
+          
+          if (response.status === 'success' && response.data && response.data.user) {
+            // User exists in database with complete data
+            console.log('🔄 Setting user data from database');
+            setUserData(response.data.user);
+          } else {
+            // New user - needs setup
+            console.log('🆕 New user - needs branch selection');
+            setUserData(null);
+          }
+        } catch (error) {
+          console.error('❌ Database fetch failed:', error);
+          setUserData(null);
+        } finally {
+          setLoading(false);
         }
-      } catch (statusError) {
-        console.warn('⚠️ User status failed:', statusError.message);
-        
-        // Handle error cases
-        if (statusError.message.includes('Network Error')) {
-          setUserData({ 
-            error: 'Network connection issue.',
-            uid: user.uid,
-            email: user.email,
-            name: user.displayName
-          });
-        } else {
-          // Assume new user if status check fails
-          setUserData({ 
-            uid: user.uid,
-            email: user.email,
-            name: user.displayName,
-            isNewUser: true
-          });
-        }
+      } else {
+        console.log('🚪 User logged out');
+        setUserData(null);
+        setLoading(false);
       }
-    } else {
-      console.log('🚪 User logged out, clearing data');
+    } catch (error) {
+      console.error('❌ Auth state change error:', error);
       setUserData(null);
-      localStorage.removeItem('user');
+      setLoading(false);
+    } finally {
+      setInitialized(true);
     }
-  } catch (error) {
-    console.error('❌ Error in auth state change:', error);
-    
-    if (user) {
-      setUserData({ 
-        error: error.message || 'Authentication setup required',
-        uid: user.uid,
-        email: user.email,
-        name: user.displayName
-      });
-    } else {
-      setUserData(null);
-    }
-  } finally {
-    setLoading(false);
-    setInitialized(true);
-  }
-}, []);
+  }, []);
 
-
-  // Initialize auth state listener
+  // Set up Firebase auth state listener
   useEffect(() => {
-    console.log('🔄 Initializing AuthContext...');
-    
+    console.log('🔥 Setting up Firebase auth listener');
     const unsubscribe = onAuthStateChanged(auth, handleAuthStateChange);
-
+    
     return () => {
-      console.log('🧹 Cleaning up AuthContext');
+      console.log('🧹 Cleaning up Firebase auth listener');
       unsubscribe();
     };
   }, [handleAuthStateChange]);
 
-  // Auth methods
-  const register = async (email, password, name, bio = '') => {
-    try {
-      console.log('📝 Starting registration process...');
-      setLoading(true);
-      
-      const result = await authService.registerWithEmail(email, password, name, bio);
-      console.log('✅ Registration successful:', result);
-      
-      toast.success('Registration successful! Please select your branch.');
-      return result;
-    } catch (error) {
-      console.error('❌ Registration failed:', error);
-      toast.error(error.message || 'Registration failed');
-      throw error;
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // Auth methods using authService
   const login = async (email, password) => {
+    setLoading(true);
     try {
-      console.log('🔐 Starting email login...');
-      setLoading(true);
-      
-      const result = await authService.loginWithEmail(email, password);
-      console.log('✅ Login successful:', result);
-      
-      toast.success('Login successful!');
+      const result = await authService.login(email, password);
       return result;
-    } catch (error) {
-      console.error('❌ Login failed:', error);
-      toast.error(error.message || 'Login failed');
-      throw error;
     } finally {
-      setLoading(false);
+      // Don't set loading false here - let handleAuthStateChange handle it
     }
   };
 
-  // ⭐ Updated Google login with popup
   const loginWithGoogle = async () => {
+    setLoading(true);
     try {
-      console.log('🔐 Starting Google popup login...');
-      setLoading(true);
-      
       const result = await authService.loginWithGoogle();
-      console.log('✅ Google login successful:', result);
-      
-      toast.success('Google login successful!');
       return result;
-    } catch (error) {
-      console.error('❌ Google login failed:', error);
-      
-      if (error.message !== 'Google sign-in cancelled') {
-        toast.error(error.message || 'Google login failed');
-      }
-      throw error;
     } finally {
-      setLoading(false);
+      // Don't set loading false here - let handleAuthStateChange handle it
     }
   };
 
   const selectBranch = async (branch) => {
+    setLoading(true);
     try {
-      console.log('🏢 Selecting branch:', branch);
-      setLoading(true);
-      
       const result = await authService.selectBranch(branch);
-      console.log('✅ Branch selected:', result);
-      
-      // Update local user data
-      const updatedUserData = { 
-        ...userData, 
-        branch, 
-        approvalStatus: 'pending',
-        needsBranchSelection: false 
-      };
-      
-      setUserData(updatedUserData);
-      localStorage.setItem('user', JSON.stringify(updatedUserData));
-      
-      toast.success('Branch selected! Awaiting pastor approval.');
+      // Update userData after successful branch selection
+      if (result.status === 'success' && result.data && result.data.user) {
+        setUserData(result.data.user);
+      }
       return result;
-    } catch (error) {
-      console.error('❌ Branch selection failed:', error);
-      toast.error(error.message || 'Branch selection failed');
-      throw error;
     } finally {
       setLoading(false);
     }
   };
 
   const logout = async () => {
+    setLoading(true);
     try {
-      console.log('🚪 Starting logout...');
-      
       await authService.logout();
-      console.log('✅ Logout successful');
-      
-      toast.success('Logged out successfully');
-    } catch (error) {
-      console.error('❌ Logout failed:', error);
-      toast.error('Logout failed, but you have been signed out locally');
+      setCurrentUser(null);
+      setUserData(null);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const resetPassword = async (email) => {
-    try {
-      console.log('🔑 Sending password reset for:', email);
-      
-      await authService.resetPassword(email);
-      console.log('✅ Password reset email sent');
-      
-      toast.success('Password reset email sent!');
-    } catch (error) {
-      console.error('❌ Password reset failed:', error);
-      toast.error(error.message || 'Password reset failed');
-      throw error;
-    }
+  const isAuthenticated = () => {
+    return !!currentUser;
   };
 
-  // Status check methods
-  const isAuthenticated = () => !!currentUser;
-  const isApproved = () => userData?.approvalStatus === 'approved';
-  const isPastor = () => userData?.userType === 'pastor';
-  const needsBranchSelection = () => userData?.needsBranchSelection || (!userData?.branch && userData?.userType !== 'pastor');
-  const needsApproval = () => userData?.approvalStatus === 'pending';
-
+  // Context value
   const value = {
     currentUser,
     userData,
-    loading,
+    loading,           // ⭐ Include loading state
     initialized,
-    register,
     login,
     loginWithGoogle,
-    logout,
-    resetPassword,
     selectBranch,
+    logout,
     isAuthenticated,
-    isApproved,
-    isPastor,
-    needsBranchSelection,
-    needsApproval
   };
-
-  // Show loading screen until initialized
-  if (!initialized) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <div className="loading-spinner w-8 h-8 mx-auto mb-4"></div>
-          <p className="text-gray-600">Initializing authentication...</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <AuthContext.Provider value={value}>
@@ -272,3 +145,5 @@ const handleAuthStateChange = useCallback(async (user) => {
     </AuthContext.Provider>
   );
 };
+
+export default AuthContext;

@@ -568,11 +568,9 @@ const selectBranch = async (req, res) => {
 
 const getStatus = async (req, res) => {
   try {
-    // Get Firebase UID from request (you'll need to implement auth middleware)
-    // For now, we'll use email from request body
     const { firebaseUID, email } = req.body;
     
-    console.log('👤 Getting user status for:', { firebaseUID, email });
+    console.log('👤 Backend: Checking user status for:', { firebaseUID, email });
 
     if (!firebaseUID && !email) {
       return res.status(400).json({
@@ -581,56 +579,51 @@ const getStatus = async (req, res) => {
       });
     }
 
-    // Find user in database
-    const query = firebaseUID 
-      ? { firebaseUID: firebaseUID }
-      : { email: email };
-    
-    const user = await User.findOne(query);
+    // ⭐ ALWAYS query fresh from database
+    const user = await User.findOne({
+      $or: [
+        { firebaseUID: firebaseUID },
+        { email: email }
+      ]
+    });
     
     if (!user) {
-      console.log('❌ User not found in database');
+      console.log('❌ No user found in database');
       return res.json({
         status: 'success',
-        message: 'User status retrieved',
-        data: {
-          needsSetup: true, // New user needs setup
-          user: null
-        }
+        message: 'New user',
+        data: { user: null }
       });
     }
 
     console.log('✅ User found:', {
-      id: user._id,
       email: user.email,
       branch: user.branch,
       approvalStatus: user.approvalStatus
     });
 
+    // ⭐ Return COMPLETE user data
     return res.json({
       status: 'success',
-      message: 'User status retrieved',
+      message: 'User found',
       data: {
-        needsSetup: false,
         user: {
           id: user._id,
           firebaseUID: user.firebaseUID,
           email: user.email,
           name: user.name,
-          photoURL: user.photoURL,
+          photoURL: user.profilePicture,
           branch: user.branch,
           approvalStatus: user.approvalStatus,
-          userType: user.userType,
-          needsBranchSelection: !user.branch,
-          loginMethod: user.loginMethod
+          userType: 'user'
         }
       }
     });
   } catch (error) {
-    console.error('❌ Get user status error:', error);
+    console.error('❌ Database error:', error);
     return res.status(500).json({
       status: 'error',
-      message: 'Failed to get user status'
+      message: 'Server error'
     });
   }
 };

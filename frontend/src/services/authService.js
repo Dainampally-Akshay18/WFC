@@ -134,7 +134,7 @@ class AuthService {
 }
 
 
-  async getUserStatus() {
+async getUserStatus() {
   try {
     console.log('👤 Getting user status...');
     
@@ -160,6 +160,7 @@ class AuthService {
     throw this.handleAuthError(error);
   }
 }
+
   // ==========================================
   // OTHER METHODS (SAME AS BEFORE)
   // ==========================================

@@ -41,7 +41,7 @@ const userSchema = new mongoose.Schema({
       values: ['branch1', 'branch2'],
       message: 'Branch must be either branch1 or branch2'
     },
-    required: [true, 'Branch selection is required'],
+    required: [false, 'Branch selection is required'],
     default: null
   },
   approvalStatus: {

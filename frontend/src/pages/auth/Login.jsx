@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { useAuth } from '../../contexts/AuthContext'; // ⭐ Import useAuth hook
+import { useAuth } from '../../contexts/AuthContext';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import { EnvelopeIcon, EyeIcon, EyeSlashIcon } from '@heroicons/react/24/outline';
@@ -14,13 +14,13 @@ const Login = () => {
   const [errors, setErrors] = useState({});
   const [isLoading, setIsLoading] = useState(false);
 
-  // ⭐ GET ALL DATA FROM AUTHCONTEXT
   const { 
     login, 
     loginWithGoogle, 
     currentUser, 
-    userData,           // ⭐ This is the key - get userData from context
+    userData,
     initialized, 
+    loading,
     isAuthenticated
   } = useAuth();
   
@@ -28,68 +28,44 @@ const Login = () => {
   const location = useLocation();
   const from = location.state?.from?.pathname || '/dashboard';
 
-  // ⭐ FIXED USEEFFECT - Uses userData from AuthContext
+  // ⭐ NAVIGATION LOGIC - Works across all browsers/sessions
   useEffect(() => {
-    console.log('🔄 Login useEffect triggered');
-    console.log('📊 Auth state:', {
-      initialized,
-      isAuthenticated: isAuthenticated(),
-      currentUser: !!currentUser,
-      userData
+    console.log('🔄 Navigation check:', { 
+      initialized, 
+      loading, 
+      authenticated: isAuthenticated(), 
+      userData 
     });
 
-    if (!initialized) {
-      console.log('⏳ Waiting for auth initialization...');
+    // Wait for initialization and loading to complete
+    if (!initialized || loading) {
       return;
     }
 
     if (isAuthenticated()) {
-      console.log('👤 User authenticated, determining destination...');
-      
-      // ⭐ NEW USER OR NO USER DATA: Go to branch selection
+      // ⭐ NEW USER: No backend data = needs branch selection
       if (!userData) {
-        console.log('🆕 No user data available: Redirecting to branch selection');
+        console.log('🏢 New user → Branch selection');
         navigate('/select-branch', { replace: true });
         return;
       }
       
-      // ⭐ USER HAS NO BRANCH: Go to branch selection  
+      // ⭐ EXISTING USER: Has backend data, check status
       if (!userData.branch) {
-        console.log('🏢 User has no branch: Redirecting to branch selection');
+        console.log('🏢 No branch → Branch selection');
         navigate('/select-branch', { replace: true });
-        return;
-      }
-      
-      // ⭐ USER HAS BRANCH BUT PENDING APPROVAL: Go to pending approval
-      if (userData.branch && userData.approvalStatus === 'pending') {
-        console.log('⏳ User pending approval: Redirecting to pending approval');
+      } else if (userData.approvalStatus === 'pending') {
+        console.log('⏳ Pending approval → Pending page');
         navigate('/pending-approval', { replace: true });
-        return;
-      }
-      
-      // ⭐ USER IS APPROVED: Go to dashboard
-      if (userData.approvalStatus === 'approved') {
-        console.log('✅ User approved: Redirecting to dashboard');
+      } else if (userData.approvalStatus === 'approved') {
+        console.log('✅ Approved → Dashboard');
         navigate(from, { replace: true });
-        return;
+      } else {
+        console.log('🔄 Default → Dashboard');
+        navigate(from, { replace: true });
       }
-      
-      // ⭐ USER IS REJECTED: Show rejection page
-      if (userData.approvalStatus === 'rejected') {
-        console.log('❌ User rejected: Redirecting to rejection page');
-        navigate('/application-rejected', { replace: true });
-        return;
-      }
-      
-      // ⭐ DEFAULT FALLBACK
-      console.log('🔄 Default case: Redirecting to dashboard');
-      navigate(from, { replace: true });
-      
-    } else {
-      // User not authenticated - stay on login
-      console.log('🔓 User not authenticated: Staying on login page');
     }
-  }, [currentUser, userData, initialized, navigate, from, isAuthenticated]); // ⭐ All dependencies included
+  }, [initialized, loading, currentUser, userData, navigate, from, isAuthenticated]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -120,19 +96,14 @@ const Login = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
     if (!validateForm()) return;
 
     setIsLoading(true);
     setErrors({});
     
     try {
-      console.log('🔐 Attempting email login...');
       await login(formData.email, formData.password);
-      // Navigation will be handled by useEffect after auth state updates
-      console.log('✅ Login successful, waiting for auth state update...');
     } catch (error) {
-      console.error('❌ Login failed:', error);
       setErrors({ submit: error.message });
     } finally {
       setIsLoading(false);
@@ -144,12 +115,8 @@ const Login = () => {
     setErrors({});
     
     try {
-      console.log('🔐 Attempting Google login...');
       await loginWithGoogle();
-      // Navigation will be handled by useEffect after auth state updates
-      console.log('✅ Google login successful, waiting for auth state update...');
     } catch (error) {
-      console.error('❌ Google login failed:', error);
       if (error.message !== 'Google sign-in cancelled') {
         setErrors({ submit: error.message });
       }
@@ -158,12 +125,12 @@ const Login = () => {
     }
   };
 
-  // Show loading while authentication state is being determined
-  if (!initialized) {
+  // Show loading while determining auth state
+  if (!initialized || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
-          <div className="loading-spinner w-8 h-8 mx-auto mb-4"></div>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
           <p className="text-gray-600">Loading...</p>
         </div>
       </div>
@@ -173,12 +140,8 @@ const Login = () => {
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <h2 className="text-2xl font-bold text-gray-900">
-          Welcome Back
-        </h2>
-        <p className="mt-2 text-gray-600">
-          Sign in to your account to continue
-        </p>
+        <h2 className="text-2xl font-bold text-gray-900">Welcome Back</h2>
+        <p className="mt-2 text-gray-600">Sign in to your account to continue</p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -210,27 +173,17 @@ const Login = () => {
             className="absolute right-3 top-[38px] text-gray-400 hover:text-gray-600"
             onClick={() => setShowPassword(!showPassword)}
           >
-            {showPassword ? (
-              <EyeSlashIcon className="w-5 h-5" />
-            ) : (
-              <EyeIcon className="w-5 h-5" />
-            )}
+            {showPassword ? <EyeSlashIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}
           </button>
         </div>
 
         {errors.submit && (
-          <div className="p-3 bg-danger-50 border border-danger-200 rounded-lg text-danger-700 text-sm">
+          <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
             {errors.submit}
           </div>
         )}
 
-        <Button
-          type="submit"
-          variant="primary"
-          fullWidth
-          loading={isLoading}
-          disabled={isLoading}
-        >
+        <Button type="submit" variant="primary" fullWidth loading={isLoading} disabled={isLoading}>
           Sign In
         </Button>
       </form>
@@ -251,22 +204,10 @@ const Login = () => {
         disabled={isLoading}
         leftIcon={
           <svg className="w-5 h-5" viewBox="0 0 24 24">
-            <path
-              fill="currentColor"
-              d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-            />
-            <path
-              fill="currentColor"
-              d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-            />
-            <path
-              fill="currentColor"
-              d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-            />
-            <path
-              fill="currentColor"
-              d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-            />
+            <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+            <path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+            <path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+            <path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
           </svg>
         }
       >
@@ -274,28 +215,13 @@ const Login = () => {
       </Button>
 
       <div className="text-center space-y-2">
-        <Link
-          to="/forgot-password"
-          className="text-sm text-primary-600 hover:text-primary-700"
-        >
+        <Link to="/forgot-password" className="text-sm text-blue-600 hover:text-blue-700">
           Forgot your password?
         </Link>
         <div className="text-sm text-gray-600">
           Don't have an account?{' '}
-          <Link
-            to="/register"
-            className="text-primary-600 hover:text-primary-700 font-medium"
-          >
+          <Link to="/register" className="text-blue-600 hover:text-blue-700 font-medium">
             Sign up here
-          </Link>
-        </div>
-        <div className="text-sm text-gray-600">
-          Are you a pastor?{' '}
-          <Link
-            to="/pastor-login"
-            className="text-primary-600 hover:text-primary-700 font-medium"
-          >
-            Pastor Login
           </Link>
         </div>
       </div>
