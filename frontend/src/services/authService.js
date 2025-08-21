@@ -120,7 +120,7 @@ class AuthService {
     // Step 3: Store COMPLETE user data (including branch, approvalStatus)
     this.currentUser = result.user;
     this.userData = response.data.data.user; // ⭐ Complete user data from MongoDB
-
+     toast.success('Google login successful!');
     return {
       success: true,
       user: result.user,
@@ -189,7 +189,7 @@ async getUserStatus() {
       email: currentUser.email,            // ⭐ Real email
       name: currentUser.displayName || 'User' // ⭐ Real name
     });
-    
+    toast.success('Branch selected successfully!');
     console.log('✅ Branch selection successful:', response.data);
     
     if (this.userData) {
