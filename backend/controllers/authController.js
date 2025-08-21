@@ -362,11 +362,52 @@ const logout = async (req, res) => {
   }
 };
 
+// Add this new function to your existing authController.js
+const googleLogin = async (req, res) => {
+  const { uid, email, name, photoURL } = req.body;
+
+  console.log('🔐 Google login request:', { uid, email, name, photoURL });
+
+  try {
+    // TODO: Check if user exists in database
+    // For now, returning mock response indicating branch selection is needed
+    
+    return res.json({
+      status: 'success',
+      message: 'Google login successful',
+      data: {
+        user: {
+          id: uid || 'google-mock-id',
+          email,
+          name,
+          photoURL,
+          branch: null,  // ⭐ No branch selected yet
+          approvalStatus: 'pending',  // Will be pending until branch selection
+          userType: 'user',
+          loginMethod: 'google',
+          needsBranchSelection: true  // ⭐ Important: Branch selection required
+        }
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('❌ Google login error:', error);
+    return res.status(500).json({
+      status: 'error',
+      message: 'Google login failed',
+      error: error.message
+    });
+  }
+};
+
+
+
 module.exports = {
   universalLogin,
   selectBranch,
   getUserStatus,
   registerUser,
   setCustomClaims,
-  logout
+  logout,
+  googleLogin
 };

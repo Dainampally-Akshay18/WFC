@@ -147,6 +147,7 @@ const requirePermission = (permission) => {
   };
 };
 
+
 // Combined middleware for pastor routes
 const authenticatePastor = [authenticateToken, requirePastor];
 

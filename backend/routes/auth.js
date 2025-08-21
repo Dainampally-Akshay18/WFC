@@ -4,7 +4,7 @@ const {
   selectBranch, 
   getUserStatus, 
   registerUser,
-  logout 
+  logout,googleLogin
 } = require('../controllers/authController');
 const { authenticateToken } = require('../middleware/auth');
 const { body, validationResult } = require('express-validator');
@@ -83,5 +83,9 @@ router.get('/health', (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
+
+// Add this line to your existing routes
+router.post('/google-login', googleLogin);
+
 
 module.exports = router;

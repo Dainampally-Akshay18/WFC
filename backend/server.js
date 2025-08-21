@@ -4,183 +4,237 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 require('dotenv').config();
-
-// Import configurations
-const { connectDatabase } = require('./config/database');
-const { initializeFirebase } = require('./config/firebase');
-const { validateEnvironment } = require('./config/environment');
-
-// Import middleware
-const { errorHandler, notFound } = require('./middleware/errorHandler');
-const { handleUploadError } = require('./middleware/fileUpload');
-const { 
-  generalLimit, 
-  helmetConfig, 
-  corsOptions, 
-  securityHeaders, 
-  bodySizeLimits,
-  requestLogger 
-} = require('./middleware/security');
-
-// Import routes
 const authRoutes = require('./routes/auth');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Validate environment variables
-try {
-  validateEnvironment();
-} catch (error) {
-  console.error('❌ Environment validation failed:', error.message);
-  process.exit(1);
-}
+// ===========================
+// CORS CONFIGURATION (FIXED)
+// ===========================
 
-// Trust proxy (important for rate limiting)
-app.set('trust proxy', 1);
+// Define allowed origins
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:3001',
+];
 
-// Security middleware
-app.use(helmet(helmetConfig));
-app.use(securityHeaders);
+// CORS configuration
+const corsOptions = {
+  origin: function (origin, callback) {
+    console.log('🔍 CORS Check - Origin:', origin);
+    
+    // Allow requests with no origin (mobile apps, etc.)
+    if (!origin) {
+      console.log('✅ CORS: No origin - allowed');
+      return callback(null, true);
+    }
+    
+    // Check if origin is in allowed list
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      console.log('✅ CORS: Origin allowed -', origin);
+      return callback(null, true);
+    } else {
+      console.log('❌ CORS: Origin blocked -', origin);
+      return callback(new Error(`CORS policy violation: ${origin} not allowed`));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: [
+    'Origin',
+    'X-Requested-With',
+    'Content-Type',
+    'Accept',
+    'Authorization',
+    'Cache-Control',
+    'X-Forwarded-For'
+  ],
+  exposedHeaders: ['set-cookie'],
+  preflightContinue: false,
+  optionsSuccessStatus: 204
+};
+
+// Apply CORS
 app.use(cors(corsOptions));
 
-// Request logging (in development)
+// Handle preflight requests explicitly
+app.options('*', (req, res) => {
+  console.log('🚁 Preflight OPTIONS request for:', req.path);
+  console.log('🎯 Origin:', req.headers.origin);
+  
+  const origin = req.headers.origin;
+  
+  if (!origin || allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin || '*');
+    res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS,PATCH');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control, X-Forwarded-For');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Max-Age', '86400'); // 24 hours
+    console.log('✅ Preflight: Headers set for', origin);
+    return res.sendStatus(204);
+  } else {
+    console.log('❌ Preflight: Origin not allowed', origin);
+    return res.status(403).json({ error: 'CORS policy violation' });
+  }
+});
+
+// ===========================
+// MIDDLEWARE SETUP
+// ===========================
+
+// Trust proxy
+app.set('trust proxy', 1);
+
+// Helmet with relaxed settings for development
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+}));
+
+// Logging
 if (process.env.NODE_ENV === 'development') {
-  app.use(requestLogger);
   app.use(morgan('dev'));
+} else {
+  app.use(morgan('combined'));
 }
 
-// Rate limiting
-app.use('/api/', generalLimit);
+// Body parsing
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Body parsing middleware with size limits
-app.use(express.json(bodySizeLimits.json));
-app.use(express.urlencoded(bodySizeLimits.urlencoded));
+// ===========================
+// TEST ROUTES
+// ===========================
 
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.status(200).json({
+// Root route
+app.get('/', (req, res) => {
+  console.log('🏠 Root endpoint accessed from:', req.headers.origin);
+  res.json({
     status: 'success',
-    message: 'Server is running successfully',
+    message: 'Christian Organization API Server',
+    version: '1.0.0',
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development',
-    version: '1.0.0'
+    endpoints: [
+      'GET /',
+      'GET /api/health',
+      'GET /api/test-cors',
+      'POST /api/auth/login',
+      'GET /api/auth/status',
+    ]
   });
 });
 
-// Root endpoint
-app.get('/', (req, res) => {
-  res.status(200).json({
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+  console.log('💊 Health check from:', req.headers.origin);
+  res.json({
     status: 'success',
-    message: 'Christian Organization Website API',
-    version: '1.0.0',
-    endpoints: {
-      health: '/api/health',
-      auth: '/api/auth',
-      models_test: '/api/test-models'
+    message: 'API is healthy',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development',
+    cors: 'enabled'
+  });
+});
+
+app.use('/api/auth', authRoutes);
+// CORS test endpoint
+app.get('/api/test-cors', (req, res) => {
+  console.log('🧪 CORS test from:', req.headers.origin);
+  res.json({
+    status: 'success',
+    message: 'CORS is working correctly!',
+    origin: req.headers.origin,
+    timestamp: new Date().toISOString(),
+    headers: req.headers
+  });
+});
+
+// ===========================
+// AUTH ROUTES (MOCK)
+// ===========================
+
+// Mock auth status endpoint
+app.get('/api/auth/status', (req, res) => {
+  console.log('🔐 Auth status check from:', req.headers.origin);
+  res.json({
+    status: 'success',
+    message: 'Auth status retrieved',
+    data: {
+      needsSetup: true,
+      user: null
     },
     timestamp: new Date().toISOString()
   });
 });
 
-// API Routes
-app.use('/api/auth', authRoutes);
-
-// Test database models endpoint (development only)
-if (process.env.NODE_ENV === 'development') {
-  app.get('/api/test-models', async (req, res) => {
-    try {
-      const { User, Pastor, Sermon, Event, Blog, PrayerRequest } = require('./models');
-      
-      const stats = {
-        users: await User.countDocuments(),
-        pastors: await Pastor.countDocuments(),
-        sermons: await Sermon.countDocuments(),
-        events: await Event.countDocuments(),
-        blogs: await Blog.countDocuments(),
-        prayerRequests: await PrayerRequest.countDocuments()
-      };
-      
-      res.json({
-        status: 'success',
-        message: 'Database models are working',
-        data: stats,
-        timestamp: new Date().toISOString()
-      });
-    } catch (error) {
-      res.status(500).json({
-        status: 'error',
-        message: 'Database model test failed',
-        error: error.message,
-        timestamp: new Date().toISOString()
-      });
-    }
+// Mock auth login endpoint
+app.post('/api/auth/login', (req, res) => {
+  console.log('📝 Auth login attempt from:', req.headers.origin);
+  res.json({
+    status: 'success',
+    message: 'Login endpoint working',
+    data: {
+      user: {
+        id: 'mock-user-id',
+        name: 'Mock User',
+        email: 'mock@example.com'
+      }
+    },
+    timestamp: new Date().toISOString()
   });
-}
+});
 
-// File upload error handler (must be before general error handler)
-app.use(handleUploadError);
+// ===========================
+// ERROR HANDLING
+// ===========================
 
 // 404 handler
-app.use(notFound);
-
-// Global error handler (must be last)
-app.use(errorHandler);
-
-// Initialize services and start server
-async function startServer() {
-  try {
-    // Connect to database
-    await connectDatabase();
-    console.log('✅ Database connected successfully');
-
-    // Initialize Firebase
-    await initializeFirebase();
-    console.log('✅ Firebase initialized successfully');
-
-    // Start server
-    const server = app.listen(PORT, () => {
-      console.log(`✅ Server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
-      console.log(`🚀 Health check: http://localhost:${PORT}/api/health`);
-      console.log(`🔐 Auth routes: http://localhost:${PORT}/api/auth`);
-      console.log(`🌐 Root endpoint: http://localhost:${PORT}/`);
-      console.log(`📊 Security: Rate limiting, CORS, and Helmet enabled`);
-    });
-
-    // Graceful shutdown
-    const gracefulShutdown = () => {
-      console.log('🔄 Received shutdown signal, closing server gracefully...');
-      server.close(() => {
-        console.log('✅ Server closed successfully');
-        mongoose.connection.close(() => {
-          console.log('✅ Database connection closed');
-          process.exit(0);
-        });
-      });
-    };
-
-    process.on('SIGTERM', gracefulShutdown);
-    process.on('SIGINT', gracefulShutdown);
-
-  } catch (error) {
-    console.error('❌ Failed to start server:', error);
-    process.exit(1);
-  }
-}
-
-// Handle unhandled promise rejections
-process.on('unhandledRejection', (err, promise) => {
-  console.error('❌ Unhandled Promise Rejection:', err);
-  console.error('❌ At:', promise);
-  process.exit(1);
+app.use('*', (req, res) => {
+  console.log('❌ 404 - Route not found:', req.originalUrl);
+  res.status(404).json({
+    status: 'error',
+    message: 'Route not found',
+    path: req.originalUrl,
+    timestamp: new Date().toISOString()
+  });
 });
 
-// Handle uncaught exceptions
-process.on('uncaughtException', (err) => {
-  console.error('❌ Uncaught Exception:', err);
-  process.exit(1);
+// Global error handler
+app.use((error, req, res, next) => {
+  console.error('💥 Server Error:', error);
+  res.status(500).json({
+    status: 'error',
+    message: error.message || 'Internal server error',
+    timestamp: new Date().toISOString()
+  });
 });
 
-startServer();
+// ===========================
+// START SERVER
+// ===========================
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`
+🚀 Server started successfully!
+📍 Port: ${PORT}
+🌍 Environment: ${process.env.NODE_ENV || 'development'}
+🔗 CORS enabled for: ${allowedOrigins.join(', ')}
+
+📊 Test endpoints:
+   GET  http://localhost:${PORT}/
+   GET  http://localhost:${PORT}/api/health
+   GET  http://localhost:${PORT}/api/test-cors
+   GET  http://localhost:${PORT}/api/auth/status
+   POST http://localhost:${PORT}/api/auth/login
+
+🧪 Test CORS in browser console:
+   fetch('http://localhost:${PORT}/api/health')
+     .then(r => r.json())
+     .then(d => console.log('✅ CORS working:', d))
+  `);
+});
 
 module.exports = app;

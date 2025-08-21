@@ -1,0 +1,209 @@
+const express = require('express');
+const mongoose = require('mongoose');
+const cors = require('cors');
+const helmet = require('helmet');
+const morgan = require('morgan');
+require('dotenv').config();
+
+// Import configurations
+const { connectDatabase } = require('./config/database');
+const { initializeFirebase } = require('./config/firebase');
+const { validateEnvironment } = require('./config/environment');
+const { optimizeConnection, createIndexes } = require('./utils/dbOptimization');
+
+// Import middleware
+const { errorHandler, notFound } = require('./middleware/errorHandler');
+const { handleUploadError } = require('./middleware/fileUpload');
+const { 
+  generalLimit, 
+  helmetConfig, 
+  corsOptions, 
+  securityHeaders, 
+  bodySizeLimits 
+} = require('./middleware/security');
+const { 
+  compressionMiddleware,
+  cacheMiddleware,
+  timingMiddleware,
+  memoryMiddleware
+} = require('./middleware/performance');
+
+// Import documentation
+const { specs, swaggerUi } = require('./docs/swagger');
+
+// Import logger
+const logger = require('./utils/logger');
+
+// Import routes
+const authRoutes = require('./routes/auth');
+const userRoutes = require('./routes/users');
+const adminRoutes = require('./routes/admin');
+const uploadRoutes = require('./routes/upload');
+const sermonRoutes = require('./routes/sermons');
+const eventRoutes = require('./routes/events');
+const blogRoutes = require('./routes/blogs');
+const prayerRoutes = require('./routes/prayers');
+
+const app = express();
+const PORT = process.env.PORT || 5000;
+
+// Validate environment variables
+try {
+  validateEnvironment();
+} catch (error) {
+  logger.error('Environment validation failed', { error: error.message });
+  process.exit(1);
+}
+
+// Trust proxy
+app.set('trust proxy', 1);
+
+// Performance middleware
+app.use(compressionMiddleware);
+app.use(timingMiddleware);
+if (process.env.NODE_ENV === 'development') {
+  app.use(memoryMiddleware);
+}
+
+// Security middleware
+app.use(helmet(helmetConfig));
+app.use(securityHeaders);
+app.use(cors(corsOptions));
+
+// Logging
+if (process.env.NODE_ENV === 'development') {
+  app.use(morgan('dev'));
+} else {
+  app.use(morgan('combined', {
+    stream: {
+      write: (message) => logger.info('HTTP', { message: message.trim() })
+    }
+  }));
+}
+
+// Rate limiting
+app.use('/api/', generalLimit);
+
+// Body parsing
+app.use(express.json(bodySizeLimits.json));
+app.use(express.urlencoded(bodySizeLimits.urlencoded));
+
+// API Documentation
+if (process.env.NODE_ENV !== 'production') {
+  app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(specs, {
+    explorer: true,
+    customCss: '.swagger-ui .topbar { display: none }',
+    customSiteTitle: 'Christian Organization API Documentation'
+  }));
+}
+
+// Health check
+app.get('/api/health', cacheMiddleware(60), (req, res) => {
+  res.json({
+    status: 'success',
+    message: 'Server is running successfully',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV,
+    version: '1.0.0',
+    documentation: '/api/docs'
+  });
+});
+
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({
+    status: 'success',
+    message: 'Christian Organization Website API',
+    version: '1.0.0',
+    documentation: '/api/docs',
+    endpoints: {
+      health: '/api/health',
+      auth: '/api/auth',
+      users: '/api/users',
+      admin: '/api/admin',
+      sermons: '/api/sermons',
+      events: '/api/events',
+      blogs: '/api/blogs',
+      prayers: '/api/prayers'
+    }
+  });
+});
+
+// API Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/upload', uploadRoutes);
+app.use('/api/sermons', sermonRoutes);
+app.use('/api/events', eventRoutes);
+app.use('/api/blogs', blogRoutes);
+app.use('/api/prayers', prayerRoutes);
+
+// Error handling
+app.use(handleUploadError);
+app.use(notFound);
+app.use(errorHandler);
+
+// Start server
+async function startServer() {
+  try {
+    // Optimize database connection
+    optimizeConnection();
+    
+    // Connect to database
+    await connectDatabase();
+    logger.info('Database connected successfully');
+    
+    // Create database indexes
+    await createIndexes();
+    
+    // Initialize Firebase
+    await initializeFirebase();
+    logger.info('Firebase initialized successfully');
+    
+    // Start server
+    const server = app.listen(PORT, () => {
+      logger.info(`Server running on port ${PORT}`, {
+        environment: process.env.NODE_ENV,
+        documentation: `http://localhost:${PORT}/api/docs`,
+        endpoints: {
+          health: `http://localhost:${PORT}/api/health`,
+          docs: `http://localhost:${PORT}/api/docs`
+        }
+      });
+    });
+    
+    // Graceful shutdown
+    const gracefulShutdown = (signal) => {
+      logger.info(`Received ${signal}, shutting down gracefully`);
+      server.close(() => {
+        mongoose.connection.close(() => {
+          logger.info('Server and database connections closed');
+          process.exit(0);
+        });
+      });
+    };
+    
+    process.on('SIGTERM', gracefulShutdown);
+    process.on('SIGINT', gracefulShutdown);
+    
+  } catch (error) {
+    logger.error('Failed to start server', { error: error.message });
+    process.exit(1);
+  }
+}
+
+// Error handling
+process.on('unhandledRejection', (err) => {
+  logger.error('Unhandled Promise Rejection', { error: err.message, stack: err.stack });
+  process.exit(1);
+});
+
+process.on('uncaughtException', (err) => {
+  logger.error('Uncaught Exception', { error: err.message, stack: err.stack });
+  process.exit(1);
+});
+
+startServer();
+
+module.exports = app;

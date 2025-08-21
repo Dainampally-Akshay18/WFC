@@ -1,0 +1,13 @@
+import React from 'react';
+import Card from '../../components/ui/Card';
+
+const BlogDetail = () => {
+  return (
+    <div>
+      <h1 className="text-2xl font-bold text-gray-900 mb-6">Blog Detail</h1>
+      <Card><p>Blog detail page coming soon...</p></Card>
+    </div>
+  );
+};
+
+export default BlogDetail;
