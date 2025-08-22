@@ -14,7 +14,8 @@ const { asyncHandler } = require('../middleware/errorHandler');
 
 // Submit prayer request
 const submitPrayerRequest = asyncHandler(async (req, res) => {
-  const { title, description, isAnonymous, priority } = req.body;
+  // Destructure all expected fields from the form
+  const { title, description, isAnonymous, priority, category, shareWithOtherBranch } = req.body;
   const userId = req.user._id;
   const userBranch = req.user.branch;
 
@@ -22,7 +23,9 @@ const submitPrayerRequest = asyncHandler(async (req, res) => {
     title,
     description,
     submitterBranch: userBranch,
-    priority: priority || 'normal'
+    priority: priority || 'normal',
+    category: category || 'Other', // Add category with a fallback
+    shareWithOtherBranch: !!shareWithOtherBranch // Add shareWithOtherBranch, ensuring it's a boolean
   };
 
   if (isAnonymous) {
@@ -49,7 +52,11 @@ const getAllPrayerRequests = asyncHandler(async (req, res) => {
   if (status && Object.values(PRAYER_STATUS).includes(status)) {
     query.status = status;
   } else {
-    query.status = 'active'; // Default to active requests
+    // If no status is provided, default to 'active'.
+    // Allow 'all' to bypass this default for the "All Requests" tab.
+    if (status !== 'all') {
+      query.status = 'active';
+    }
   }
 
   // Filter by priority
@@ -81,7 +88,9 @@ const getAllPrayerRequests = asyncHandler(async (req, res) => {
   const prayersWithMeta = prayers.map(prayer => ({
     ...prayer.toObject(),
     displayName: prayer.displayName,
-    daysOld: prayer.daysOld
+    daysOld: prayer.daysOld,
+    // Explicitly check if the current user has prayed
+    isPrayingFor: prayer.prayedBy.some(p => p.user && p.user.equals(req.user._id))
   }));
 
   paginatedResponse(res, prayersWithMeta, { page, limit, total }, 'Prayer requests retrieved successfully');
@@ -147,14 +156,21 @@ const addPrayerForRequest = asyncHandler(async (req, res) => {
     return errorResponse(res, 'Cannot pray for this request', 400);
   }
 
-  try {
-    await prayer.addPrayer(userId);
-    
-    successResponse(res, 'Prayer added successfully', {
-      prayerCount: prayer.prayerCount
+  // Toggle prayer status
+  const userHasPrayed = prayer.prayedBy.some(p => p.user.equals(userId));
+
+  if (userHasPrayed) {
+    await prayer.removePrayer(userId);
+    successResponse(res, 'Prayer removed successfully', {
+      prayerCount: prayer.prayerCount,
+      action: 'removed'
     });
-  } catch (error) {
-    return errorResponse(res, 'You have already prayed for this request', 400);
+  } else {
+    await prayer.addPrayer(userId);
+    successResponse(res, 'Prayer added successfully', {
+      prayerCount: prayer.prayerCount,
+      action: 'added'
+    });
   }
 });
 

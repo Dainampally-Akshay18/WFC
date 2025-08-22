@@ -6,6 +6,9 @@ const morgan = require('morgan');
 require('dotenv').config();
 const authRoutes = require('./routes/auth');
 const sermonRoutes = require('./routes/sermons');
+const eventRoutes = require('./routes/events');
+const prayerRoutes = require('./routes/prayers'); 
+
 
 const { connectDatabase } = require('./config/database');
 
@@ -142,8 +145,15 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+
+//Routes of Features 
 app.use('/api/auth', authRoutes);
 app.use('/api/sermons', sermonRoutes);
+app.use('/api/events', eventRoutes); 
+app.use('/api/prayers', prayerRoutes);
+
+
+
 // CORS test endpoint
 app.get('/api/test-cors', (req, res) => {
   console.log('🧪 CORS test from:', req.headers.origin);

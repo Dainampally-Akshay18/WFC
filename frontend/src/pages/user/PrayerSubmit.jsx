@@ -8,6 +8,8 @@ import {
   InformationCircleIcon,
   ExclamationTriangleIcon
 } from '@heroicons/react/24/outline';
+// IMPORT the service we created
+import { submitPrayer } from '../../services/prayerService';
 
 const PrayerSubmit = () => {
   const navigate = useNavigate();
@@ -74,19 +76,22 @@ const PrayerSubmit = () => {
     if (!validateForm()) return;
 
     setIsSubmitting(true);
+    setErrors({}); // Clear previous submission errors
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // ======================================================
+      // INTEGRATION POINT: Replace mock call with real API call
+      // ======================================================
+      const response = await submitPrayer(formData);
       
-      // Mock successful submission
-      console.log('Prayer request submitted:', formData);
+      console.log('Prayer request submitted successfully:', response.data);
       
-      // Redirect to prayer list with success message
+      // Redirect to prayer list with a success message
       navigate('/prayers', { 
         state: { message: 'Prayer request submitted successfully!' }
       });
     } catch (error) {
-      setErrors({ submit: 'Failed to submit prayer request. Please try again.' });
+      // Display the error message from the backend
+      setErrors({ submit: error.message || 'Failed to submit prayer request. Please try again.' });
     } finally {
       setIsSubmitting(false);
     }
