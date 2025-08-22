@@ -31,7 +31,7 @@ const Navbar = () => {
                 <span className="text-white font-bold text-lg">C</span>
               </div>
               <span className="text-xl font-semibold text-gray-900">
-                Christian Org
+                WFC Christian Congregation
               </span>
             </Link>
           </div>

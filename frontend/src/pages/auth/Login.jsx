@@ -59,7 +59,7 @@ const Login = () => {
         navigate('/pending-approval', { replace: true });
       } else if (userData.approvalStatus === 'approved') {
         console.log('✅ Approved → Dashboard');
-        navigate(from, { replace: true });
+        navigate('/dashboard', { replace: true });
       } else {
         console.log('🔄 Default → Dashboard');
         navigate(from, { replace: true });

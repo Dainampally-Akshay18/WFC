@@ -5,6 +5,7 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 require('dotenv').config();
 const authRoutes = require('./routes/auth');
+const sermonRoutes = require('./routes/sermons');
 
 const { connectDatabase } = require('./config/database');
 
@@ -142,6 +143,7 @@ app.get('/api/health', (req, res) => {
 });
 
 app.use('/api/auth', authRoutes);
+app.use('/api/sermons', sermonRoutes);
 // CORS test endpoint
 app.get('/api/test-cors', (req, res) => {
   console.log('🧪 CORS test from:', req.headers.origin);
@@ -226,17 +228,7 @@ app.listen(PORT, '0.0.0.0', async() => {
 🌍 Environment: ${process.env.NODE_ENV || 'development'}
 🔗 CORS enabled for: ${allowedOrigins.join(', ')}
 
-📊 Test endpoints:
-   GET  http://localhost:${PORT}/
-   GET  http://localhost:${PORT}/api/health
-   GET  http://localhost:${PORT}/api/test-cors
-   GET  http://localhost:${PORT}/api/auth/status
-   POST http://localhost:${PORT}/api/auth/login
 
-🧪 Test CORS in browser console:
-   fetch('http://localhost:${PORT}/api/health')
-     .then(r => r.json())
-     .then(d => console.log('✅ CORS working:', d))
   `);
 });
 

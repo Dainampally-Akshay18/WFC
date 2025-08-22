@@ -25,7 +25,7 @@ const Sidebar = () => {
   ];
 
   // Add admin link for pastors
-  if (isPastor()) {
+  if (isPastor) {
     navigation.push({ name: 'Admin Panel', href: '/admin', icon: Cog6ToothIcon });
   }
 

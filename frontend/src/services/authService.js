@@ -129,6 +129,7 @@ class AuthService {
     };
   } catch (error) {
     console.error('❌ Google popup login failed:', error);
+    toast.error('Google login failed. Please try again.');
     throw this.handleAuthError(error);
   }
 }
@@ -201,6 +202,7 @@ async getUserStatus() {
     return response.data;
   } catch (error) {
     console.error('❌ Branch selection failed:', error);
+    toast.error('Branch selection failed. Please try again.');
     throw this.handleAuthError(error);
   }
 }
@@ -240,7 +242,7 @@ async getUserStatus() {
       } catch (error) {
         console.warn('⚠️ Backend logout failed (ignoring):', error.message);
       }
-
+      toast.success('Logged out successfully');
       return { 
         success: true, 
         message: 'Logged out successfully' 
