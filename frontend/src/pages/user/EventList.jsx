@@ -5,14 +5,18 @@ import { auth } from '../../config/firebase';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
-import CreateEventDialog from '../../components/ui/CreateEventDialog'; // ⭐ ADD THIS
+import CreateEventDialog from '../../components/ui/CreateEventDialog';
+import EditEventDialog from '../../components/ui/EditEventDialog';
 import {
   CalendarDaysIcon,
   ClockIcon,
   MapPinIcon,
   UserGroupIcon,
   PlusIcon,
-  FunnelIcon
+  FunnelIcon,
+  PencilIcon,
+  TrashIcon,
+  EyeIcon
 } from '@heroicons/react/24/outline';
 
 const EventList = () => {
@@ -20,7 +24,10 @@ const EventList = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState('upcoming');
   const [error, setError] = useState('');
-  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false); // ⭐ ADD THIS
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [editingEvent, setEditingEvent] = useState(null);
+  const [deletingEventId, setDeletingEventId] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const { currentUser } = useAuth();
 
@@ -53,16 +60,22 @@ const EventList = () => {
     try {
       const headers = await getAuthHeaders();
       
-      // ⭐ BUILD API URL BASED ON FILTER
-      let apiUrl = '/api/events';
-      const params = new URLSearchParams();
+      // ⭐ FIXED: Map filters to correct API endpoints based on your routes
+      let apiUrl;
       
-      if (filter === 'upcoming') {
-        params.append('upcoming', 'true');
-      }
-      
-      if (params.toString()) {
-        apiUrl += `?${params.toString()}`;
+      switch (filter) {
+        case 'upcoming':
+          apiUrl = '/api/events/upcoming'; // ⭐ CORRECT ENDPOINT
+          break;
+        case 'myEvents':
+          apiUrl = '/api/events?myEvents=true'; // ⭐ QUERY PARAM FOR MY EVENTS
+          break;
+        case 'past':
+        case 'attending':
+        case 'all':
+        default:
+          apiUrl = '/api/events'; // ⭐ BASE ENDPOINT FOR ALL EVENTS
+          break;
       }
 
       console.log('🔍 Fetching events from:', apiUrl);
@@ -73,7 +86,9 @@ const EventList = () => {
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to fetch events: ${response.status}`);
+        const errorData = await response.json();
+        console.error('❌ Backend error:', errorData);
+        throw new Error(errorData.message || `Failed to fetch events: ${response.status}`);
       }
 
       const data = await response.json();
@@ -86,7 +101,7 @@ const EventList = () => {
       }
     } catch (error) {
       console.error('❌ Error fetching events:', error);
-      setError('Failed to load events');
+      setError('Failed to load events: ' + error.message);
       
       // ⭐ FALLBACK: Mock events for testing
       const mockEvents = [
@@ -97,11 +112,13 @@ const EventList = () => {
           eventDate: '2025-01-26T10:00:00Z',
           endDate: '2025-01-26T12:00:00Z',
           location: 'Main Sanctuary',
-          branch: 'Branch 1',
+          branch: 'branch1',
           attendeeCount: 45,
           maxAttendees: 200,
           category: 'Worship',
           isActive: true,
+          canEdit: true,
+          canDelete: true,
           createdBy: {
             name: 'Pastor John'
           }
@@ -113,11 +130,13 @@ const EventList = () => {
           eventDate: '2025-01-28T19:00:00Z',
           endDate: '2025-01-28T21:00:00Z',
           location: 'Youth Center',
-          branch: 'Branch 1',
+          branch: 'branch1',
           attendeeCount: 12,
           maxAttendees: 30,
           category: 'Study',
           isActive: true,
+          canEdit: false,
+          canDelete: false,
           createdBy: {
             name: 'Pastor Sarah'
           }
@@ -132,10 +151,57 @@ const EventList = () => {
   // ⭐ HANDLE EVENT CREATION SUCCESS
   const handleEventCreated = (newEvent) => {
     console.log('✅ Event created successfully:', newEvent);
-    // Add the new event to the beginning of the events list
     setEvents(prevEvents => [newEvent, ...prevEvents]);
-    // Optionally show a success notification
-    // You can add a toast notification here if you have one
+  };
+
+  // ⭐ HANDLE EVENT UPDATE SUCCESS
+  const handleEventUpdated = (updatedEvent) => {
+    console.log('✅ Event updated successfully:', updatedEvent);
+    setEvents(prevEvents => 
+      prevEvents.map(event => 
+        event._id === updatedEvent._id ? updatedEvent : event
+      )
+    );
+    setEditingEvent(null);
+  };
+
+  // ⭐ HANDLE DELETE EVENT
+  const handleDeleteEvent = async (eventId) => {
+    if (!eventId) return;
+
+    setIsDeleting(true);
+    setDeletingEventId(eventId);
+    
+    try {
+      const headers = await getAuthHeaders();
+      
+      console.log('🗑️ Deleting event:', eventId);
+      const response = await fetch(`/api/events/${eventId}`, {
+        method: 'DELETE',
+        headers
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to delete event');
+      }
+
+      const data = await response.json();
+      console.log('✅ Event deleted successfully:', data);
+
+      if (data.success) {
+        // Remove event from list
+        setEvents(prevEvents => 
+          prevEvents.filter(event => event._id !== eventId)
+        );
+      }
+    } catch (error) {
+      console.error('❌ Error deleting event:', error);
+      setError('Failed to delete event: ' + error.message);
+    } finally {
+      setIsDeleting(false);
+      setDeletingEventId(null);
+    }
   };
 
   const formatDate = (dateString) => {
@@ -162,9 +228,10 @@ const EventList = () => {
   };
 
   const filteredEvents = events.filter(event => {
-    if (filter === 'upcoming') return isUpcoming(event.eventDate);
+    if (filter === 'upcoming') return true; // Already filtered by API
     if (filter === 'past') return !isUpcoming(event.eventDate);
-    if (filter === 'attending') return event.userRegistered; // This will come from backend
+    if (filter === 'attending') return event.userRegistered;
+    if (filter === 'myEvents') return true; // Already filtered by API
     return true;
   });
 
@@ -185,7 +252,6 @@ const EventList = () => {
           <p className="text-gray-600">Stay connected with our community events and activities</p>
         </div>
         
-        {/* ⭐ CREATE EVENT BUTTON - OPENS DIALOG */}
         <Button onClick={() => setIsCreateDialogOpen(true)}>
           <PlusIcon className="w-5 h-5 mr-2" />
           Create Event
@@ -196,8 +262,7 @@ const EventList = () => {
       <div className="flex space-x-1 mb-8 bg-gray-100 p-1 rounded-lg w-fit">
         {[
           { key: 'upcoming', label: 'Upcoming' },
-          { key: 'past', label: 'Past' },
-          { key: 'attending', label: 'My Events' },
+          { key: 'myEvents', label: 'Created by Me' },
           { key: 'all', label: 'All' }
         ].map((tab) => (
           <button
@@ -231,6 +296,7 @@ const EventList = () => {
             {filter === 'upcoming' && "There are no upcoming events at this time."}
             {filter === 'past' && "No past events to show."}
             {filter === 'attending' && "You're not registered for any events yet."}
+            {filter === 'myEvents' && "You haven't created any events yet."}
             {filter === 'all' && "No events available."}
           </p>
           <div className="mt-6">
@@ -300,9 +366,10 @@ const EventList = () => {
                 </div>
 
                 {/* Action Buttons */}
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between mb-4">
                   <Link to={`/events/${event._id}`}>
                     <Button variant="primary" size="sm">
+                      <EyeIcon className="w-4 h-4 mr-2" />
                       View Details
                     </Button>
                   </Link>
@@ -312,7 +379,6 @@ const EventList = () => {
                       variant={event.userRegistered ? "success" : "secondary"} 
                       size="sm"
                       onClick={() => {
-                        // TODO: Implement registration logic
                         console.log('Register for event:', event._id);
                       }}
                     >
@@ -320,6 +386,34 @@ const EventList = () => {
                     </Button>
                   )}
                 </div>
+
+                {/* Edit/Delete Buttons - Only show if user can edit/delete */}
+                {(event.canEdit || event.canDelete) && (
+                  <div className="flex items-center justify-center space-x-2 pt-4 border-t border-gray-200">
+                    {event.canEdit && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setEditingEvent(event)}
+                      >
+                        <PencilIcon className="w-4 h-4 mr-2" />
+                        Edit
+                      </Button>
+                    )}
+                    
+                    {event.canDelete && (
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        onClick={() => handleDeleteEvent(event._id)}
+                        disabled={isDeleting && deletingEventId === event._id}
+                      >
+                        <TrashIcon className="w-4 h-4 mr-2" />
+                        {isDeleting && deletingEventId === event._id ? 'Deleting...' : 'Delete'}
+                      </Button>
+                    )}
+                  </div>
+                )}
 
                 {/* Event Organizer */}
                 {event.createdBy && (
@@ -352,6 +446,16 @@ const EventList = () => {
         onClose={() => setIsCreateDialogOpen(false)}
         onEventCreated={handleEventCreated}
       />
+
+      {/* ⭐ EDIT EVENT DIALOG */}
+      {editingEvent && (
+        <EditEventDialog
+          isOpen={!!editingEvent}
+          onClose={() => setEditingEvent(null)}
+          eventData={editingEvent}
+          onEventUpdated={handleEventUpdated}
+        />
+      )}
     </div>
   );
 };

@@ -6,6 +6,7 @@ const {
   getEventById,
   updateEvent,
   deleteEvent,
+  hardDeleteEvent,
   requestCrossBranchSharing,
   approveCrossBranchSharing,
   getUpcomingEvents
@@ -13,7 +14,7 @@ const {
 
 const { authenticateUser, authenticatePastor } = require('../middleware/auth');
 const { filterEventsByBranch, setBranchContext } = require('../middleware/branchFilter');
-const { 
+const {
   validateEvent,
   validateObjectId,
   validatePagination,
@@ -37,7 +38,12 @@ router.post('/', validateEvent, createEvent);
 
 // User can edit their own events
 router.put('/:id', [validateObjectId, validateEvent], updateEvent);
+
+// User can soft delete their own events
 router.delete('/:id', validateObjectId, deleteEvent);
+
+// Pastor can hard delete events (permanently remove)
+router.delete('/:id/permanent', [authenticatePastor, validateObjectId], hardDeleteEvent);
 
 // Cross-branch sharing
 router.post('/:id/request-cross-branch', validateObjectId, requestCrossBranchSharing);

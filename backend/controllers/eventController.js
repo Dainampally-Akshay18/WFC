@@ -1,14 +1,14 @@
 const { Event } = require('../models');
-const { 
-  successResponse, 
-  errorResponse, 
+const {
+  successResponse,
+  errorResponse,
   notFoundResponse,
-  paginatedResponse 
+  paginatedResponse
 } = require('../utils/responseFormatter');
-const { 
-  getPaginationOptions, 
-  buildSearchQuery, 
-  isFutureDate 
+const {
+  getPaginationOptions,
+  buildSearchQuery,
+  isFutureDate
 } = require('../utils/helpers');
 const { BRANCHES } = require('../utils/constants');
 const { asyncHandler } = require('../middleware/errorHandler');
@@ -16,7 +16,6 @@ const { asyncHandler } = require('../middleware/errorHandler');
 // Create new event
 const createEvent = asyncHandler(async (req, res) => {
   const { title, description, eventDate, endDate, location, branch, maxAttendees } = req.body;
-  
   const creatorId = req.userType === 'pastor' ? req.pastor._id : req.user._id;
   const creatorType = req.userType === 'pastor' ? 'Pastor' : 'User';
 
@@ -39,14 +38,13 @@ const createEvent = asyncHandler(async (req, res) => {
   });
 
   await event.populate('createdBy');
-
   successResponse(res, 'Event created successfully', event, 201);
 });
 
 // Get all events with branch filtering
 const getAllEvents = asyncHandler(async (req, res) => {
   const { page, limit, skip, sort } = getPaginationOptions(req.query);
-  const { branch, upcoming, search } = req.query;
+  const { branch, upcoming, search, myEvents } = req.query;
 
   let query = { isActive: true };
 
@@ -59,6 +57,15 @@ const getAllEvents = asyncHandler(async (req, res) => {
   } else if (branch && branch !== 'all') {
     // Pastor can filter by specific branch
     query.branch = branch;
+  }
+
+  // Filter for user's own events
+  if (myEvents === 'true' && req.userType === 'user') {
+    query.createdBy = req.user._id;
+    query.creatorType = 'User';
+  } else if (myEvents === 'true' && req.userType === 'pastor') {
+    query.createdBy = req.pastor._id;
+    query.creatorType = 'Pastor';
   }
 
   // Filter upcoming events only
@@ -87,7 +94,11 @@ const getAllEvents = asyncHandler(async (req, res) => {
     ...event.toObject(),
     status: event.status,
     attendeeCount: event.attendeeCount,
-    availableSpots: event.availableSpots
+    availableSpots: event.availableSpots,
+    canEdit: req.userType === 'pastor' || 
+             (req.userType === 'user' && event.createdBy._id.equals(req.user._id)),
+    canDelete: req.userType === 'pastor' || 
+               (req.userType === 'user' && event.createdBy._id.equals(req.user._id))
   }));
 
   paginatedResponse(res, eventsWithStatus, { page, limit, total }, 'Events retrieved successfully');
@@ -110,7 +121,6 @@ const getEventsByBranch = asyncHandler(async (req, res) => {
   const events = await Event.findByBranch(branch)
     .skip(skip)
     .limit(limit);
-
   const total = await Event.countDocuments({ branch, isActive: true });
 
   paginatedResponse(res, events, { page, limit, total }, `Events for ${branch} retrieved successfully`);
@@ -132,9 +142,9 @@ const getEventById = asyncHandler(async (req, res) => {
   // Check if user can access this event
   if (req.userType === 'user') {
     const userBranch = req.user.branch;
-    const canAccess = event.branch === userBranch || 
-                     event.branch === 'both' || 
-                     (event.branch !== userBranch && event.crossBranchApproved);
+    const canAccess = event.branch === userBranch ||
+      event.branch === 'both' ||
+      (event.branch !== userBranch && event.crossBranchApproved);
 
     if (!canAccess) {
       return errorResponse(res, 'Access denied for this event', 403);
@@ -146,8 +156,12 @@ const getEventById = asyncHandler(async (req, res) => {
     status: event.status,
     attendeeCount: event.attendeeCount,
     availableSpots: event.availableSpots,
-    userRegistered: req.userType === 'user' ? 
-      event.attendees.some(a => a.user._id.equals(req.user._id)) : false
+    userRegistered: req.userType === 'user' ?
+      event.attendees.some(a => a.user._id.equals(req.user._id)) : false,
+    canEdit: req.userType === 'pastor' || 
+             (req.userType === 'user' && event.createdBy._id.equals(req.user._id)),
+    canDelete: req.userType === 'pastor' || 
+               (req.userType === 'user' && event.createdBy._id.equals(req.user._id))
   };
 
   successResponse(res, 'Event retrieved successfully', eventData);
@@ -159,14 +173,13 @@ const updateEvent = asyncHandler(async (req, res) => {
   const updates = req.body;
 
   const event = await Event.findById(id);
-
   if (!event) {
     return notFoundResponse(res, 'Event');
   }
 
   // Check permissions
-  const canEdit = req.userType === 'pastor' || 
-                 (req.userType === 'user' && event.createdBy.equals(req.user._id));
+  const canEdit = req.userType === 'pastor' ||
+    (req.userType === 'user' && event.createdBy.equals(req.user._id));
 
   if (!canEdit) {
     return errorResponse(res, 'Not authorized to edit this event', 403);
@@ -185,19 +198,18 @@ const updateEvent = asyncHandler(async (req, res) => {
   successResponse(res, 'Event updated successfully', event);
 });
 
-// Delete event
+// Delete event (soft delete)
 const deleteEvent = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
   const event = await Event.findById(id);
-
   if (!event) {
     return notFoundResponse(res, 'Event');
   }
 
   // Check permissions
-  const canDelete = req.userType === 'pastor' || 
-                   (req.userType === 'user' && event.createdBy.equals(req.user._id));
+  const canDelete = req.userType === 'pastor' ||
+    (req.userType === 'user' && event.createdBy.equals(req.user._id));
 
   if (!canDelete) {
     return errorResponse(res, 'Not authorized to delete this event', 403);
@@ -205,9 +217,28 @@ const deleteEvent = asyncHandler(async (req, res) => {
 
   // Soft delete
   event.isActive = false;
+  event.deletedAt = new Date();
   await event.save();
 
-  successResponse(res, 'Event deleted successfully');
+  successResponse(res, 'Event deleted successfully', { deletedEventId: id });
+});
+
+// Hard delete event (permanently remove - admin only)
+const hardDeleteEvent = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  const event = await Event.findById(id);
+  if (!event) {
+    return notFoundResponse(res, 'Event');
+  }
+
+  // Only pastors can hard delete
+  if (req.userType !== 'pastor') {
+    return errorResponse(res, 'Not authorized to permanently delete this event', 403);
+  }
+
+  await Event.findByIdAndDelete(id);
+  successResponse(res, 'Event permanently deleted successfully', { deletedEventId: id });
 });
 
 // Request cross-branch sharing
@@ -215,7 +246,6 @@ const requestCrossBranchSharing = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
   const event = await Event.findById(id);
-
   if (!event) {
     return notFoundResponse(res, 'Event');
   }
@@ -240,7 +270,6 @@ const approveCrossBranchSharing = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
   const event = await Event.findById(id);
-
   if (!event) {
     return notFoundResponse(res, 'Event');
   }
@@ -280,6 +309,7 @@ module.exports = {
   getEventById,
   updateEvent,
   deleteEvent,
+  hardDeleteEvent,
   requestCrossBranchSharing,
   approveCrossBranchSharing,
   getUpcomingEvents
