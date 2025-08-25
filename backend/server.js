@@ -4,11 +4,13 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 require('dotenv').config();
+
 const authRoutes = require('./routes/auth');
 const sermonRoutes = require('./routes/sermons');
 const eventRoutes = require('./routes/events');
-const prayerRoutes = require('./routes/prayers'); 
-
+const prayerRoutes = require('./routes/prayers');
+const pastorAuthRoutes = require('./routes/pastorAuth');
+const adminRoutes = require('./routes/admin'); // ADD THIS LINE
 
 const { connectDatabase } = require('./config/database');
 
@@ -16,10 +18,9 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // ===========================
-// CORS CONFIGURATION (FIXED)
+// CORS CONFIGURATION
 // ===========================
 
-// Define allowed origins
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:5173',
@@ -27,18 +28,13 @@ const allowedOrigins = [
   'http://localhost:3001',
 ];
 
-// CORS configuration
 const corsOptions = {
   origin: function (origin, callback) {
     console.log('🔍 CORS Check - Origin:', origin);
-    
-    // Allow requests with no origin (mobile apps, etc.)
     if (!origin) {
       console.log('✅ CORS: No origin - allowed');
       return callback(null, true);
     }
-    
-    // Check if origin is in allowed list
     if (allowedOrigins.indexOf(origin) !== -1) {
       console.log('✅ CORS: Origin allowed -', origin);
       return callback(null, true);
@@ -63,22 +59,18 @@ const corsOptions = {
   optionsSuccessStatus: 204
 };
 
-// Apply CORS
 app.use(cors(corsOptions));
 
-// Handle preflight requests explicitly
 app.options('*', (req, res) => {
   console.log('🚁 Preflight OPTIONS request for:', req.path);
   console.log('🎯 Origin:', req.headers.origin);
-  
   const origin = req.headers.origin;
-  
   if (!origin || allowedOrigins.includes(origin)) {
     res.header('Access-Control-Allow-Origin', origin || '*');
     res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS,PATCH');
     res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control, X-Forwarded-For');
     res.header('Access-Control-Allow-Credentials', 'true');
-    res.header('Access-Control-Max-Age', '86400'); // 24 hours
+    res.header('Access-Control-Max-Age', '86400');
     console.log('✅ Preflight: Headers set for', origin);
     return res.sendStatus(204);
   } else {
@@ -91,28 +83,23 @@ app.options('*', (req, res) => {
 // MIDDLEWARE SETUP
 // ===========================
 
-// Trust proxy
 app.set('trust proxy', 1);
-
-// Helmet with relaxed settings for development
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false,
 }));
 
-// Logging
 if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
 } else {
   app.use(morgan('combined'));
 }
 
-// Body parsing
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // ===========================
-// TEST ROUTES
+// ROUTES
 // ===========================
 
 // Root route
@@ -128,7 +115,9 @@ app.get('/', (req, res) => {
       'GET /api/health',
       'GET /api/test-cors',
       'POST /api/auth/login',
-      'GET /api/auth/status',
+      'POST /api/pastor-auth/login',
+      'GET /api/pastor-auth/',
+      'GET /api/admin/dashboard/overview'
     ]
   });
 });
@@ -145,14 +134,13 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-
-//Routes of Features 
+// Routes of Features
 app.use('/api/auth', authRoutes);
 app.use('/api/sermons', sermonRoutes);
-app.use('/api/events', eventRoutes); 
+app.use('/api/events', eventRoutes);
 app.use('/api/prayers', prayerRoutes);
-
-
+app.use('/api/pastor-auth', pastorAuthRoutes);
+app.use('/api/admin', adminRoutes); // ADD THIS LINE
 
 // CORS test endpoint
 app.get('/api/test-cors', (req, res) => {
@@ -165,10 +153,6 @@ app.get('/api/test-cors', (req, res) => {
     headers: req.headers
   });
 });
-
-// ===========================
-// AUTH ROUTES (MOCK)
-// ===========================
 
 // Mock auth status endpoint
 app.get('/api/auth/status', (req, res) => {
@@ -205,7 +189,6 @@ app.post('/api/auth/login', (req, res) => {
 // ERROR HANDLING
 // ===========================
 
-// 404 handler
 app.use('*', (req, res) => {
   console.log('❌ 404 - Route not found:', req.originalUrl);
   res.status(404).json({
@@ -216,7 +199,6 @@ app.use('*', (req, res) => {
   });
 });
 
-// Global error handler
 app.use((error, req, res, next) => {
   console.error('💥 Server Error:', error);
   res.status(500).json({
@@ -231,14 +213,16 @@ app.use((error, req, res, next) => {
 // ===========================
 
 app.listen(PORT, '0.0.0.0', async() => {
-   await connectDatabase();
+  await connectDatabase();
   console.log(`
 🚀 Server started successfully!
 📍 Port: ${PORT}
 🌍 Environment: ${process.env.NODE_ENV || 'development'}
 🔗 CORS enabled for: ${allowedOrigins.join(', ')}
-
-
+📋 Available Routes:
+   - GET /api/pastor-auth/
+   - POST /api/pastor-auth/login
+   - GET /api/pastor-auth/profile
   `);
 });
 

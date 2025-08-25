@@ -1,5 +1,7 @@
+const jwt = require('jsonwebtoken'); // ADD THIS LINE
 const { verifyFirebaseToken } = require('../config/firebase');
 const { User, Pastor } = require('../models');
+const { errorResponse } = require('../utils/responseFormatter'); // ADD THIS LINE
 
 // Middleware to verify Firebase token (works for both email/password and Google)
 const authenticateToken = async (req, res, next) => {
@@ -16,11 +18,9 @@ const authenticateToken = async (req, res, next) => {
 
     // Verify Firebase token (works for all authentication methods)
     const decodedToken = await verifyFirebaseToken(token);
-    
     // Add decoded token to request
     req.firebaseUser = decodedToken;
     req.uid = decodedToken.uid;
-
     next();
   } catch (error) {
     console.error('Authentication error:', error);
@@ -31,132 +31,99 @@ const authenticateToken = async (req, res, next) => {
   }
 };
 
-// Middleware to get user details and check approval status
-const getUserDetails = async (req, res, next) => {
+// Authenticate Pastor (JWT-based for pastors)
+const authenticatePastor = async (req, res, next) => {
   try {
-    const { uid } = req;
-
-    // Try to find user in User collection first
-    let user = await User.findOne({ firebaseUID: uid });
+    const authHeader = req.headers.authorization;
     
-    if (user) {
-      req.user = user;
-      req.userType = 'user';
-      
-      // Check if user is approved
-      if (user.approvalStatus !== 'approved') {
-        return res.status(403).json({
-          status: 'error',
-          message: 'Account pending approval',
-          data: {
-            approvalStatus: user.approvalStatus,
-            rejectionReason: user.rejectionReason
-          }
-        });
-      }
-    } else {
-      // Try to find in Pastor collection
-      let pastor = await Pastor.findOne({ firebaseUID: uid });
-      
-      if (pastor) {
-        req.user = pastor;
-        req.userType = 'pastor';
-      } else {
-        return res.status(404).json({
-          status: 'error',
-          message: 'User not found in database'
-        });
-      }
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return errorResponse(res, 'Access token required', 401);
     }
 
-    next();
-  } catch (error) {
-    console.error('User details error:', error);
-    return res.status(500).json({
-      status: 'error',
-      message: 'Error retrieving user details'
-    });
-  }
-};
-
-// Middleware to check if user is approved (for regular users only)
-const requireApproval = (req, res, next) => {
-  if (req.userType === 'pastor') {
-    return next(); // Pastors don't need approval
-  }
-
-  if (!req.user || req.user.approvalStatus !== 'approved') {
-    return res.status(403).json({
-      status: 'error',
-      message: 'Account not approved',
-      data: {
-        approvalStatus: req.user?.approvalStatus || 'unknown',
-        rejectionReason: req.user?.rejectionReason
-      }
-    });
-  }
-
-  next();
-};
-
-// Combined middleware for authenticated routes
-const authenticateUser = [authenticateToken, getUserDetails, requireApproval];
-
-// Middleware for pastor-only routes
-const requirePastor = async (req, res, next) => {
-  try {
-    const { uid } = req;
+    const token = authHeader.substring(7);
     
-    const pastor = await Pastor.findOne({ firebaseUID: uid, isActive: true });
+    // Verify JWT token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
     
-    if (!pastor) {
-      return res.status(403).json({
-        status: 'error',
-        message: 'Pastor access required'
-      });
+    if (decoded.userType !== 'pastor') {
+      return errorResponse(res, 'Pastor access required', 403);
+    }
+
+    // Find pastor
+    const pastor = await Pastor.findById(decoded.id);
+    if (!pastor || !pastor.isActive) {
+      return errorResponse(res, 'Pastor account not found or inactive', 401);
     }
 
     req.pastor = pastor;
     next();
   } catch (error) {
-    return res.status(500).json({
-      status: 'error',
-      message: 'Error verifying pastor status'
-    });
+    if (error.name === 'JsonWebTokenError') {
+      return errorResponse(res, 'Invalid token', 401);
+    }
+    if (error.name === 'TokenExpiredError') {
+      return errorResponse(res, 'Token expired', 401);
+    }
+    return errorResponse(res, 'Authentication failed', 401);
   }
 };
 
-// Middleware to check specific permissions
+// Check specific permission
 const requirePermission = (permission) => {
   return (req, res, next) => {
-    if (req.userType !== 'pastor') {
-      return res.status(403).json({
-        status: 'error',
-        message: 'Pastor access required'
-      });
+    if (!req.pastor) {
+      return errorResponse(res, 'Pastor authentication required', 401);
     }
 
-    if (!req.user.hasPermission(permission)) {
-      return res.status(403).json({
-        status: 'error',
-        message: `Permission required: ${permission}`
-      });
+    if (!req.pastor.hasPermission(permission)) {
+      return errorResponse(res, `Permission denied: ${permission} required`, 403);
     }
 
     next();
   };
 };
 
+// Authenticate User (Firebase-based for users)
+const authenticateUser = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return errorResponse(res, 'Access token required', 401);
+    }
 
-// Combined middleware for pastor routes
-const authenticatePastor = [authenticateToken, requirePastor];
+    const token = authHeader.substring(7);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    
+    if (decoded.userType !== 'user') {
+      return errorResponse(res, 'User access required', 403);
+    }
+
+    const user = await User.findById(decoded.id);
+    if (!user || !user.isActive) {
+      return errorResponse(res, 'User account not found or inactive', 401);
+    }
+
+    if (user.approvalStatus !== 'approved') {
+      return errorResponse(res, 'Account pending approval', 403);
+    }
+
+    req.user = user;
+    next();
+  } catch (error) {
+    if (error.name === 'JsonWebTokenError') {
+      return errorResponse(res, 'Invalid token', 401);
+    }
+    if (error.name === 'TokenExpiredError') {
+      return errorResponse(res, 'Token expired', 401);
+    }
+    return errorResponse(res, 'Authentication failed', 401);
+  }
+};
 
 module.exports = {
   authenticateToken,
-  getUserDetails,
-  requireApproval,
+  authenticatePastor,
   authenticateUser,
-  requirePastor,
-  requirePermission,
-  authenticatePastor
+  requirePermission
 };

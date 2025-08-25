@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
 
 const pastorSchema = new mongoose.Schema({
   firebaseUID: {
@@ -17,6 +18,12 @@ const pastorSchema = new mongoose.Schema({
       /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
       'Please provide a valid email address'
     ]
+  },
+  password: {
+    type: String,
+    required: [true, 'Password is required'],
+    minlength: [6, 'Password must be at least 6 characters long'],
+    select: false // Don't include password in queries by default
   },
   name: {
     type: String,
@@ -114,5 +121,13 @@ pastorSchema.methods.isSuperAdmin = function() {
 pastorSchema.statics.findActive = function() {
   return this.find({ isActive: true });
 };
+
+// Pre-save hook to hash password if modified
+pastorSchema.pre('save', async function(next) {
+  if (!this.isModified('password')) return next();
+  
+  this.password = await bcrypt.hash(this.password, 12);
+  next();
+});
 
 module.exports = mongoose.model('Pastor', pastorSchema);
