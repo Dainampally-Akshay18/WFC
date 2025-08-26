@@ -18,10 +18,12 @@
   "type": "commonjs",
   "dependencies": {
     "@azure/storage-blob": "^12.28.0",
+    "argon2": "^0.44.0",
     "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.2",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
+    "crypto": "^1.0.1",
     "dotenv": "^17.2.1",
     "express": "^4.19.2",
     "express-rate-limit": "^8.0.1",
